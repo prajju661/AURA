@@ -1,0 +1,127 @@
+{
+  "name": "AURA Main Autonomous Request Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aura-request",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "request_id", "value": "={{ $json.body.request_id }}" },
+            { "name": "title", "value": "={{ $json.body.title }}" },
+            { "name": "description", "value": "={{ $json.body.description }}" }
+          ]
+        }
+      },
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/match_policies",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{\n  \"match_threshold\": 0.75,\n  \"match_count\": 3\n}"
+      },
+      "name": "Fetch Policy Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"Analyze operational request: {{ $('Validate Request').item.json.description }}. Context policies: {{ JSON.stringify($json) }}. Return JSON with category, priority, confidence, decision (AUTO_EXECUTE | NEEDS_APPROVAL | ESCALATE | REJECT), reason.\"\n    }]\n  }]\n}"
+      },
+      "name": "Gemini AI Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.decision }}",
+        "rules": {
+          "rules": [
+            { "value2": "AUTO_EXECUTE", "outputKey": "AUTO_EXECUTE" },
+            { "value2": "NEEDS_APPROVAL", "outputKey": "NEEDS_APPROVAL" },
+            { "value2": "ESCALATE", "outputKey": "ESCALATE" },
+            { "value2": "REJECT", "outputKey": "REJECT" }
+          ]
+        }
+      },
+      "name": "Decision Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "aura-agent@aura.org",
+        "toEmail": "manager@aura.org",
+        "subject": "Approval Required: {{ $('Validate Request').item.json.title }}",
+        "text": "Request needs manager approval. Reason: {{ $('Gemini AI Agent').item.json.reason }}"
+      },
+      "name": "Notify Approver Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1300, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/audit_logs",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"request_id\": \"{{ $('Validate Request').item.json.request_id }}\",\n  \"event\": \"AI_DECISION_PROCESSED\",\n  \"actor\": \"AURA n8n Agent\",\n  \"details\": {\"decision\": \"{{ $('Gemini AI Agent').item.json.decision }}\"}\n}"
+      },
+      "name": "Create Audit Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1500, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Validate Request", "type": "main", "index": 0 }]]
+    },
+    "Validate Request": {
+      "main": [[{ "node": "Fetch Policy Context", "type": "main", "index": 0 }]]
+    },
+    "Fetch Policy Context": {
+      "main": [[{ "node": "Gemini AI Agent", "type": "main", "index": 0 }]]
+    },
+    "Gemini AI Agent": {
+      "main": [[{ "node": "Decision Router", "type": "main", "index": 0 }]]
+    },
+    "Decision Router": {
+      "main": [
+        [{ "node": "Create Audit Log", "type": "main", "index": 0 }],
+        [{ "node": "Notify Approver Email", "type": "main", "index": 0 }],
+        [{ "node": "Create Audit Log", "type": "main", "index": 0 }],
+        [{ "node": "Create Audit Log", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Approver Email": {
+      "main": [[{ "node": "Create Audit Log", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": {}
+}

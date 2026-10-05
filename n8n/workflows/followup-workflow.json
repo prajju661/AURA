@@ -1,0 +1,69 @@
+{
+  "name": "AURA Autonomous Follow-Up Cron Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Cron Schedule Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/requests?status=eq.PENDING_APPROVAL",
+        "jsonParameters": true
+      },
+      "name": "Fetch Pending Approvals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "aura-followup@aura.org",
+        "toEmail": "manager@aura.org",
+        "subject": "REMINDER: Pending Approval for Request #{{ $json.id.slice(0,8) }}",
+        "text": "This is an automated follow-up reminder from AURA. Request '{{ $json.title }}' is still awaiting your approval."
+      },
+      "name": "Send Reminder Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/audit_logs",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"request_id\": \"{{ $json.id }}\",\n  \"event\": \"AUTONOMOUS_FOLLOWUP_SENT\",\n  \"actor\": \"AURA Cron Agent\",\n  \"details\": {\"reminder_type\": \"Email\", \"target\": \"manager@aura.org\"}\n}"
+      },
+      "name": "Log Followup Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [920, 300]
+    }
+  ],
+  "connections": {
+    "Cron Schedule Trigger": {
+      "main": [[{ "node": "Fetch Pending Approvals", "type": "main", "index": 0 }]]
+    },
+    "Fetch Pending Approvals": {
+      "main": [[{ "node": "Send Reminder Email", "type": "main", "index": 0 }]]
+    },
+    "Send Reminder Email": {
+      "main": [[{ "node": "Log Followup Audit", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": {}
+}

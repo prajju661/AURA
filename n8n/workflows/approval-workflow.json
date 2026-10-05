@@ -1,0 +1,66 @@
+{
+  "name": "AURA Human Approval Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aura-approval",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Approval Callback Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/approvals?id=eq.{{ $json.body.approval_id }}",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"status\": \"{{ $json.body.status }}\",\n  \"comment\": \"{{ $json.body.comment }}\"\n}"
+      },
+      "name": "Update Approval Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/requests?id=eq.{{ $json.body.request_id }}",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"status\": \"{{ $json.body.status === 'APPROVED' ? 'APPROVED' : 'REJECTED' }}\"\n}"
+      },
+      "name": "Update Request Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/audit_logs",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"request_id\": \"{{ $json.body.request_id }}\",\n  \"event\": \"HUMAN_APPROVAL_SUBMITTED\",\n  \"actor\": \"Manager Morgan\",\n  \"details\": {\"status\": \"{{ $json.body.status }}\", \"comment\": \"{{ $json.body.comment }}\"}\n}"
+      },
+      "name": "Log Audit Entry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [920, 300]
+    }
+  ],
+  "connections": {
+    "Approval Callback Webhook": {
+      "main": [[{ "node": "Update Approval Record", "type": "main", "index": 0 }]]
+    },
+    "Update Approval Record": {
+      "main": [[{ "node": "Update Request Status", "type": "main", "index": 0 }]]
+    },
+    "Update Request Status": {
+      "main": [[{ "node": "Log Audit Entry", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": {}
+}
